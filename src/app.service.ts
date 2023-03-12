@@ -22,7 +22,7 @@ export class AppService {
 
   async fetchOptionChain(): Promise<any> {
     // Request data
-    const { body } = await request(this.getInstrument('nifty'));
+    const { body } = await request(this.getInstrument('banknifty'));
 
     const jsonConverted: OptionChain = await body.json();
 
@@ -39,15 +39,13 @@ export class AppService {
 
     // Request data
     const { body } = await request(
-      'https://h9cg992bof.execute-api.ap-south-1.amazonaws.com/webapi/option/fatch-option-chain?symbol=nifty&expiryDate=',
+      `https://h9cg992bof.execute-api.ap-south-1.amazonaws.com/webapi/option/fatch-option-chain?symbol=${instrument}&expiryDate=`,
       {
         method: 'GET',
       },
     );
 
     const optionChain = await body.json();
-
-    console.log('Fetched api');
 
     let atmParam;
 
@@ -62,6 +60,7 @@ export class AppService {
     const atm = await this.getAtmStrike(atmParam);
 
     const atmStrike = Math.ceil(atm / 100) * 100;
+
     const limitStrike = 10;
 
     // Greeks value on day opening
@@ -71,8 +70,6 @@ export class AppService {
     // Get current expiry week strike prices
     const currentWeek = optionChain.resultData;
 
-    console.log(currentWeek);
-
     // Get atm strike data
     const currStrikeIndex = currentWeek.opDatas.findIndex(
       (s) => s.strike_price == atmStrike,
@@ -81,6 +78,7 @@ export class AppService {
     // Get opening day atm strike data
     const openingDayGreeks = {};
 
+    // TODO: Run this only one time at 9:15 AM.
     for (
       let i = currStrikeIndex - limitStrike;
       i <= currStrikeIndex + limitStrike;
@@ -100,7 +98,6 @@ export class AppService {
           delta: option.put_delta,
         },
       };
-      // console.log(`Strike ${strike}:`, openingDayGreeks[strike]);
     }
 
     // Get atm strike data
@@ -116,7 +113,7 @@ export class AppService {
     let totalChangeInPutVega = 0;
     let totalChangeInPutDelta = 0;
 
-    // Call
+    // Call greeks change
     for (let i = startIndex; i < startIndex + limitStrike; i++) {
       const option: OpData = currentWeek.opDatas[i];
 
@@ -140,7 +137,7 @@ export class AppService {
       totalChangeInCallDelta += changeInGreeks[option.strike_price].delta;
     }
 
-    // Put
+    // Put Greeks change
     for (let i = startIndex; i > startIndex - limitStrike; i--) {
       const option: OpData = currentWeek.opDatas[i];
 
@@ -164,9 +161,19 @@ export class AppService {
       totalChangeInPutDelta += changeInGreeks[option.strike_price].delta;
     }
 
+    let marketDirection;
+
+    if (totalChangeInCallVega > 0 && totalChangeInPutVega < 0) {
+      marketDirection = 'BEARISH';
+    } else {
+      console.log('Bull');
+      marketDirection = 'BULLISH';
+    }
+
     return {
       instrument,
       atmStrike,
+      marketDirection,
       call: {
         vega: totalChangeInCallDelta,
         delta: totalChangeInCallVega,
